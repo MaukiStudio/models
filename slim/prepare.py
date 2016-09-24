@@ -18,7 +18,7 @@ import tensorflow as tf
 tf.app.flags.DEFINE_string('project_name', 'uspace', 'Project Name')
 tf.app.flags.DEFINE_string('data_directory', '', 'Data directory')
 tf.app.flags.DEFINE_string('output_directory', '', 'Output data directory')
-tf.app.flags.DEFINE_integer('num_threads', '6', 'Number of threads to preprocess the images.')
+tf.app.flags.DEFINE_integer('num_threads', 6, 'Number of threads to preprocess the images.')
 tf.app.flags.DEFINE_integer('num_folds', 0, 'Number of folds')
 tf.app.flags.DEFINE_string('labels_file', '', 'Labels file')
 
@@ -104,7 +104,7 @@ def _process_image_files_batch(coder, thread_index, ranges, name, filenames, tex
     counter = 0
     for s in xrange(num_shards_per_batch):
         shard = thread_index * num_shards_per_batch + s
-        output_filename = '%s-%s-%.3d-of-%.3d.tfrecord' % (FLAGS.project_name, name, shard, num_shards)
+        output_filename = '%.3d-of-%.3d.tfrecord' % (shard, num_shards)
         output_file = os.path.join(FLAGS.output_directory, output_filename)
         writer = tf.python_io.TFRecordWriter(output_file)
 
@@ -183,10 +183,19 @@ def _find_image_files(data_dir, labels_file):
     # Leave label index 0 empty as a background class.
     label_index = 1
 
+    # Find minimun class count
+    min_class_cnt = None
+    for text in unique_labels:
+        jpeg_file_path = os.path.join(data_dir, text, '*')
+        matching_files = tf.gfile.Glob(jpeg_file_path)
+        if not min_class_cnt or min_class_cnt >= len(matching_files):
+            min_class_cnt = len(matching_files)
+
     # Construct the list of JPEG files and labels.
     for text in unique_labels:
         jpeg_file_path = os.path.join(data_dir, text, '*')
         matching_files = tf.gfile.Glob(jpeg_file_path)
+        matching_files = random.sample(matching_files, min_class_cnt)
 
         labels.extend([label_index] * len(matching_files))
         texts.extend([text] * len(matching_files))
