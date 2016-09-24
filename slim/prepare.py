@@ -18,9 +18,9 @@ import tensorflow as tf
 tf.app.flags.DEFINE_string('project_name', 'uspace', 'Project Name')
 tf.app.flags.DEFINE_string('data_directory', '', 'Data directory')
 tf.app.flags.DEFINE_string('output_directory', '', 'Output data directory')
-tf.app.flags.DEFINE_integer('num_threads', 6, 'Number of threads to preprocess the images.')
-tf.app.flags.DEFINE_integer('num_folds', 0, 'Number of folds')
+tf.app.flags.DEFINE_integer('num_threads', 4, 'Number of threads to preprocess the images.')
 tf.app.flags.DEFINE_string('labels_file', '', 'Labels file')
+tf.app.flags.DEFINE_string('K', 5, '(train+validation) / validation')
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -104,7 +104,7 @@ def _process_image_files_batch(coder, thread_index, ranges, name, filenames, tex
     counter = 0
     for s in xrange(num_shards_per_batch):
         shard = thread_index * num_shards_per_batch + s
-        output_filename = '%.3d-of-%.3d.tfrecord' % (shard, num_shards)
+        output_filename = '%s-%s-%.3d-of-%.3d.tfrecord' % (FLAGS.project_name, name, shard, num_shards)
         output_file = os.path.join(FLAGS.output_directory, output_filename)
         writer = tf.python_io.TFRecordWriter(output_file)
 
@@ -206,11 +206,7 @@ def _find_image_files(data_dir, labels_file):
               label_index, len(labels)))
         label_index += 1
 
-    # Shuffle the ordering of all image files in order to guarantee
-    # random ordering of the images with respect to label in the
-    # saved TFRecord files. Make the randomization repeatable.
     shuffled_index = range(len(filenames))
-    random.seed(12345)
     random.shuffle(shuffled_index)
 
     filenames = [filenames[i] for i in shuffled_index]
@@ -221,9 +217,16 @@ def _find_image_files(data_dir, labels_file):
     return filenames, texts, labels
 
 
-def _process_dataset(name, directory, num_shards, labels_file):
+def _process_dataset(directory, labels_file):
     filenames, texts, labels = _find_image_files(directory, labels_file)
-    _process_image_files(name, filenames, texts, labels, num_shards)
+    r = np.linspace(0, len(filenames), FLAGS.K+1).astype(int)
+    _process_image_files('validation', filenames[:r[1]], texts[:r[1]], labels[:r[1]], FLAGS.num_threads)
+    _process_image_files('train', filenames[r[1]:], texts[r[1]:], labels[r[1]:], FLAGS.num_threads*(FLAGS.K-1))
+
+    print('')
+    print('total count = %d' % len(filenames))
+    print('validation count = %d' % len(filenames[:r[1]]))
+    print('train count = %d' % len(filenames[r[1]:]))
 
 
 def main(_):
@@ -231,18 +234,13 @@ def main(_):
         FLAGS.data_directory = '/home/gulby/tmp/%s/data' % FLAGS.project_name
     if not FLAGS.output_directory:
         FLAGS.output_directory = '/home/gulby/tmp/%s/output' % FLAGS.project_name
-    if not FLAGS.num_folds:
-        FLAGS.num_folds = FLAGS.num_threads * 5
     if not FLAGS.labels_file:
         FLAGS.labels_file = '%s/labels.txt' % FLAGS.data_directory
 
-    assert not FLAGS.num_folds % FLAGS.num_threads, (
-        'Please make the FLAGS.num_threads commensurate with FLAGS.num_folds')
     print('Saving results to %s' % FLAGS.output_directory)
 
     # Run it!
-    _process_dataset('cross', FLAGS.data_directory,
-                   FLAGS.num_folds, FLAGS.labels_file)
+    _process_dataset(FLAGS.data_directory, FLAGS.labels_file)
 
 
 if __name__ == '__main__':
