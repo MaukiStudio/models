@@ -13,6 +13,8 @@ import threading
 import numpy as np
 import tensorflow as tf
 
+from datasets.dataset_utils import write_label_file, int64_feature, bytes_feature
+
 
 # Initialize Global Variables
 tf.app.flags.DEFINE_string('project_name', 'uspace', 'Project Name')
@@ -25,31 +27,21 @@ tf.app.flags.DEFINE_string('K', 5, '(train+validation) / validation')
 FLAGS = tf.app.flags.FLAGS
 
 
-def _int64_feature(value):
-    if not isinstance(value, list):
-        value = [value]
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
-
-
-def _bytes_feature(value):
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-
-
 def _convert_to_example(filename, image_buffer, label, text, height, width):
     colorspace = 'RGB'
     channels = 3
     image_format = 'JPEG'
 
     example = tf.train.Example(features=tf.train.Features(feature={
-        'image/height': _int64_feature(height),
-        'image/width': _int64_feature(width),
-        'image/colorspace': _bytes_feature(colorspace),
-        'image/channels': _int64_feature(channels),
-        'image/class/label': _int64_feature(label),
-        'image/class/text': _bytes_feature(text),
-        'image/format': _bytes_feature(image_format),
-        'image/filename': _bytes_feature(os.path.basename(filename)),
-        'image/encoded': _bytes_feature(image_buffer)}))
+        'image/height': int64_feature(height),
+        'image/width': int64_feature(width),
+        'image/colorspace': bytes_feature(colorspace),
+        'image/channels': int64_feature(channels),
+        'image/class/label': int64_feature(label),
+        'image/class/text': bytes_feature(text),
+        'image/format': bytes_feature(image_format),
+        'image/filename': bytes_feature(os.path.basename(filename)),
+        'image/encoded': bytes_feature(image_buffer)}))
     return example
 
 
@@ -179,6 +171,7 @@ def _find_image_files(data_dir, labels_file):
     labels = []
     filenames = []
     texts = []
+    labels_to_texts = dict()
 
     # Leave label index 0 empty as a background class.
     label_index = 1
@@ -193,6 +186,7 @@ def _find_image_files(data_dir, labels_file):
 
     # Construct the list of JPEG files and labels.
     for text in unique_labels:
+        labels_to_texts[label_index] = text
         jpeg_file_path = os.path.join(data_dir, text, '*')
         matching_files = tf.gfile.Glob(jpeg_file_path)
         matching_files = random.sample(matching_files, min_class_cnt)
@@ -214,11 +208,12 @@ def _find_image_files(data_dir, labels_file):
     labels = [labels[i] for i in shuffled_index]
 
     print('Found %d JPEG files across %d labels inside %s.' % (len(filenames), len(unique_labels), data_dir))
-    return filenames, texts, labels
+    return filenames, texts, labels, labels_to_texts
 
 
 def _process_dataset(directory, labels_file):
-    filenames, texts, labels = _find_image_files(directory, labels_file)
+    filenames, texts, labels, labels_to_texts = _find_image_files(directory, labels_file)
+    write_label_file(labels_to_texts, FLAGS.output_directory)
     r = np.linspace(0, len(filenames), FLAGS.K+1).astype(int)
     _process_image_files('validation', filenames[:r[1]], texts[:r[1]], labels[:r[1]], FLAGS.num_threads)
     _process_image_files('train', filenames[r[1]:], texts[r[1]:], labels[r[1]:], FLAGS.num_threads*(FLAGS.K-1))
